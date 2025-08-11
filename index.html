@@ -286,6 +286,10 @@ carousel.addEventListener('click', (e)=>{
 addEventListener("mousedown", e => { dragging=true; lastX=e.clientX; markMove(e.clientX, e.clientY); pointer.active=true; });
 addEventListener("mousemove", e => { if(dragging){ rotationSpeed = (e.clientX-lastX)*0.12; lastX=e.clientX; } });
 addEventListener("mouseup",   () => { dragging=false; pointer.active=false; });
+// Track hover movement too (so desktop reacts without dragging)
+addEventListener("mousemove", e => {
+  markMove(e.clientX, e.clientY);   // keep pointer.x/y fresh
+}, { passive: true });
 
 addEventListener("touchstart", e => {
   const t=e.touches[0]; dragging=true; lastX=t.clientX; markMove(t.clientX, t.clientY); pointer.active=true;
@@ -320,7 +324,7 @@ function markMove(x, y){ pointer.x=x; pointer.y=y; pointer.lastMove=performance.
 /* Particle + Flare classes */
 const BASE_PARTICLE_COUNT = 720;
 const FLARE_POOL_SIZE = 36;
-const CORE_RADIUS = 110;
+const CORE_RADIUS = 70;
 const CENTER_CONTAIN = 0.010;
 
 let audioEnergy = 0;
