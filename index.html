@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Interactive Picture Cylinder • Music + Particles</title>
+<style>
+html, body { margin:0; padding:0; overflow:hidden; background:#000; color:#fff; height:100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+canvas { position:fixed; inset:0; z-index:0; }
+
+/* Cylinder wrapper */
+.carousel-container {
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  perspective:1800px; width:82vw; height:42vh; z-index:1;
+}
+
+/* 3D ring behind */
+.cylinder-wrap { position:absolute; inset:0; transform-style:preserve-3d; pointer-events:none; z-index:0; }
+.ring-panel {
+  position:absolute; left:50%; top:50%; transform-origin:center center;
+  width: var(--stripW, 20px);
+  height: 42vh;
+  margin-left: calc(var(--stripW, 20px) / -2);
+  margin-top: calc(42vh / -2);
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg,
+      rgba(255,255,255,0.16) 0%,
+      rgba(255,255,255,0.08) 22%,
+      rgba(255,255,255,0.02) 52%,
+      rgba(0,0,0,0.28) 100%);
+  opacity: 0.32;
+  backdrop-filter: blur(2px) saturate(115%);
+  -webkit-backdrop-filter: blur(2px) saturate(115%);
+  box-shadow: inset 0 0 12px rgba(255,255,255,0.06), 0 0 24px rgba(0,0,0,0.28);
+}
+
+/* Picture cylinder */
+.carousel { position:absolute; inset:0; transform-style:preserve-3d; z-index:1; }
+.panel {
+  position:absolute; width:82vw; height:42vh; display:flex; align-items:flex-end; justify-content:flex-start;
+  border-radius:1.2vw; overflow:hidden; box-sizing:border-box;
+  background:#111; /* backup behind image */
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 12px 40px rgba(0,0,0,0.35);
+}
+.panel::before {
+  /* image */
+  content:""; position:absolute; inset:0;
+  background-position:center; background-size:cover; background-repeat:no-repeat;
+  filter: saturate(110%) contrast(105%);
+}
+.panel::after {
+  /* airy glass wash */
+  content:""; position:absolute; inset:0;
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  pointer-events:none;
+}
+
+/* Text plate inside panel (title + description) */
+.meta {
+  position:relative; z-index:2; margin:1.2rem; padding:0.9rem 1.1rem;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  max-width:min(60ch, 70%);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18);
+}
+.meta h3 { margin:0 0 .35rem; font-size:clamp(1rem,2.4vw,1.6rem); line-height:1.2; }
+.meta p  { margin:0; font-size:clamp(.9rem,1.6vw,1rem); line-height:1.35; opacity:.95; }
+.meta .tag { display:inline-block; margin-top:.5rem; font-size:.8rem; opacity:.85; }
+
+/* Controls */
+.controls {
+  position:fixed; left:50%; bottom:1rem; transform:translateX(-50%);
+  display:flex; gap:.6rem; z-index:2;
+}
+button{
+  padding:.55rem .9rem; font-size:.95rem; background:#126b6b; border:0; border-radius:.6rem; color:#fff; cursor:pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+}
+button.secondary { background:#2f2f2f; }
+
+/* Helper: active panel glow (applied inline via JS as text-shadow on .meta h3) */
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+
+<div class="carousel-container">
+  <div class="cylinder-wrap" id="cylinderRing"></div>
+  <div class="carousel" id="carousel"></div>
+</div>
+
+<div class="controls">
+  <button id="prevBtn" class="secondary">◀ Prev</button>
+  <button id="toggleAudio">Play</button>
+  <button id="nextBtn" class="secondary">Next ▶</button>
+</div>
+
+<script>
+/* ===================== Playlist: 5 pictures + 5 songs ===================== */
+/* Replace image and audio with your assets (spaces are OK). */
+const tracks = [
+  {
+    title: "Chiraq Pope",
+    image: "IMG_7893.jpeg",
+    audio: "Chiraq Pope (EP Final).wav",
+    desc:  "Blasphemous aggression. Our kick before the knock."
+  },
+  {
+    title: "Prophet For Profit",
+    image: "IMG_8267.jpeg",
+    audio: "Prophet For Profit (EP Final).wav",
+    desc:  "A tune about the bastardization of religion by leaders only after profit."
+  },
+  {
+    title: "Above The Line",
+    image: "IMG_8358.jpeg",
+    audio: "Above The Line (EP Final).wav",      
+    desc:  "We grew up in 'Southern so and so..' and everyone's real proud."
+  },
+  {
+    title: "Prayers Mean Nothing",
+    image: "IMG_8357.jpeg",
+    audio: "Prayers Mean Nothing (EP Final).wav",
+    desc:  "When god is gone, who will answer prayers?"
+  },
+  {
+    title: "Gutter",
+    image: "IMG_9561.jpeg",
+    audio: "Gutter (EP Final).wav",
+    desc:  "A violent end to this oppressive system of life."
+  }
+];
+
+/* ===================== Build cylinder ===================== */
+const carousel = document.getElementById("carousel");
+const ring = document.getElementById("cylinderRing");
+const N = tracks.length;
+const panelWidth = 0.82 * innerWidth;
+const radius = Math.round((panelWidth / 2) / Math.tan(Math.PI / N));
+
+for (let i=0;i<N;i++){
+  const t = tracks[i];
+  const panel = document.createElement("div");
+  panel.className = "panel";
+  panel.dataset.index = i;
+  panel.style.setProperty("--angle", (360/N)*i + "deg");
+  panel.style.transform = `rotateY(${(360/N)*i}deg) translateZ(${radius}px)`;
+  panel.style.setProperty("--img", `url('${t.image}')`);
+  panel.style.setProperty("--title", `'${t.title.replace(/'/g,"\\'")}'`);
+  panel.style.setProperty("--desc", `'${t.desc.replace(/'/g,"\\'")}'`);
+  panel.style.setProperty("--audio", `'${t.audio.replace(/'/g,"\\'")}'`);
+  panel.style.setProperty("--radius", radius + "px");
+  panel.style.setProperty("--panelWidth", panelWidth + "px");
+  panel.style.setProperty("--idx", i);
+  panel.style.setProperty("--bg", `url("${t.image}")`);
+  panel.style.setProperty("--z", 1);
+  panel.style.setProperty("--x", 0);
+  panel.style.setProperty("--y", 0);
+  panel.style.setProperty("--scale", 1);
+  panel.style.setProperty("--rot", (360/N)*i + "deg");
+  panel.style.setProperty("--translateZ", radius + "px");
+  panel.style.setProperty("--translateX", 0 + "px");
+  panel.style.setProperty("--translateY", 0 + "px");
+  panel.style.setProperty("--opacity", 1);
+
+  panel.style.setProperty("--bg-url", `url("${t.image}")`);
+  panel.style.setProperty("--title-text", t.title);
+  panel.style.setProperty("--desc-text", t.desc);
+  panel.style.setProperty("--audio-file", t.audio);
+  panel.style.setProperty("--angle-deg", (360/N)*i);
+
+  // apply image
+  panel.style.setProperty("--imgUrl", `url("${t.image}")`);
+  panel.style.setProperty("--imgOpacity", 1);
+  panel.style.setProperty("--imgScale", 1);
+  panel.style.setProperty("--imgRotate", 0 + "deg");
+  panel.style.setProperty("--imgX", 0 + "px");
+  panel.style.setProperty("--imgY", 0 + "px");
+  panel.style.setProperty("--imgBlur", 0 + "px");
+  panel.style.setProperty("--imgSat", 1);
+
+  panel.style.setProperty("--panelOpacity", 1);
+  panel.style.setProperty("--panelShadow", "0 12px 40px rgba(0,0,0,0.35)");
+
+  panel.style.setProperty("--metaBg", "rgba(0,0,0,0.35)");
+
+  // set the visual image on ::before
+  panel.style.setProperty('--bg-image', `url("${t.image}")`);
+  panel.style.setProperty('--bg-size', 'cover');
+
+  panel.style.setProperty('--angle', (360/N)*i + 'deg');
+  panel.style.setProperty('--zdepth', radius + 'px');
+
+  panel.style.setProperty('--bgPos', 'center');
+
+  panel.style.setProperty('--debug', 0);
+
+  // Attach image to pseudo
+  panel.style.setProperty('--img', `url("${t.image}")`);
+  panel.style.setProperty('--imgFit', 'cover');
+  panel.style.setProperty('--imgPos', 'center');
+
+  // Write title + description
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.innerHTML = `<h3>${t.title}</h3><p>${t.desc}</p><span class="tag">${i+1} / ${N}</span>`;
+  panel.appendChild(meta);
+
+  // Inject image url into ::before
+  panel.style.setProperty('--imgURL', `url("${t.image}")`);
+  panel.style.setProperty('--overlay', '1');
+
+  // We can’t directly change ::before from JS with CSS vars reliably in all browsers,
+  // so set style attribute for ::before via a class hook:
+  const styleEl = document.createElement('style');
+  styleEl.textContent = `
+    .panel[data-index="${i}"]::before { background-image: url("${t.image}"); }
+  `;
+  document.head.appendChild(styleEl);
+
+  carousel.appendChild(panel);
+}
+
+const segmentCount = 60;
+const stripW = Math.max(8, Math.floor((2 * Math.PI * radius) / segmentCount));
+ring.style.setProperty('--stripW', stripW + 'px');
+for (let i = 0; i < segmentCount; i++) {
+  const seg = document.createElement('div');
+  seg.className = 'ring-panel';
+  const angle = i * (360 / segmentCount);
+  const tilt = Math.sin((i / segmentCount) * Math.PI * 2) * 0.6;
+  seg.style.transform = `rotateY(${angle}deg) rotateX(${tilt}deg) translateZ(${radius}px)`;
+  ring.appendChild(seg);
+}
+
+/* ===================== Interaction: spin + select panels ===================== */
+let rotationY = 0;
+let rotationSpeed = -0.25; // default gentle counter-clockwise
+let dragging = false, lastX = 0;
+let activeIndex = 0;
+
+function applyRotation(){ carousel.style.transform = `rotateY(${rotationY}deg)`; }
+
+function centerPanel(i, {animate=true, autoplay=true} = {}){
+  // Compute the shortest rotation to bring panel i to the front (angle 0)
+  const anglePer = 360 / N;
+  // Current "sector"
+  const currentSector = ((rotationY % 360)+360)%360 / anglePer;
+  const diffSectors = i - Math.round(currentSector);
+  const targetRotation = rotationY + (-diffSectors * anglePer);
+
+  if (animate){
+    const start = rotationY;
+    const end = targetRotation;
+    const dur = 650;
+    const t0 = performance.now();
+    (function tween(now){
+      const t = Math.min(1, (now - t0)/dur);
+      const ease = t<.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+      rotationY = start + (end-start)*ease;
+      applyRotation();
+      if (t < 1) requestAnimationFrame(tween);
+      else { activeIndex = i; if (autoplay) playTrack(i); }
+    })(t0);
+  } else {
+    rotationY = targetRotation;
+    applyRotation();
+    activeIndex = i;
+    if (autoplay) playTrack(i);
+  }
+}
+
+carousel.addEventListener('click', (e)=>{
+  const panel = e.target.closest('.panel');
+  if (!panel) return;
+  const i = +panel.dataset.index;
+  centerPanel(i, {animate:true, autoplay:true});
+});
+
+addEventListener("mousedown", e => { dragging=true; lastX=e.clientX; markMove(e.clientX, e.clientY); pointer.active=true; });
+addEventListener("mousemove", e => { if(dragging){ rotationSpeed = (e.clientX-lastX)*0.12; lastX=e.clientX; } });
+addEventListener("mouseup",   () => { dragging=false; pointer.active=false; });
+
+addEventListener("touchstart", e => {
+  const t=e.touches[0]; dragging=true; lastX=t.clientX; markMove(t.clientX, t.clientY); pointer.active=true;
+},{passive:false});
+addEventListener("touchmove", e => {
+  e.preventDefault();
+  const t=e.touches[0];
+  if(dragging){ rotationSpeed = (t.clientX-lastX)*0.12; lastX=t.clientX; }
+  markMove(t.clientX, t.clientY);
+},{passive:false});
+addEventListener("touchend",  () => { dragging=false; pointer.active=false; });
+
+/* Prev/Next */
+document.getElementById('prevBtn').onclick = ()=> centerPanel((activeIndex-1+N)%N);
+document.getElementById('nextBtn').onclick = ()=> centerPanel((activeIndex+1)%N);
+
+/* ===================== Particles / Visualizer (balanced + reactive) ===================== */
+const canvas = document.getElementById("bg");
+const ctx = canvas.getContext("2d", { alpha:true });
+function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener("resize", resize); resize();
+
+const lerp = (a,b,t)=> a + (b-a)*t;
+const clamp = (x,a,b)=> Math.min(b, Math.max(a, x));
+
+/* Non-sticky pointer: reacts only to recent movement */
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const pointer = { x: innerWidth/2, y: innerHeight/2, active:false, strength: isTouch?2.0:1.0, lastMove:0 };
+function markMove(x, y){ pointer.x=x; pointer.y=y; pointer.lastMove=performance.now(); }
+
+/* Particle + Flare classes (same balanced behavior from earlier) */
+const BASE_PARTICLE_COUNT = 720;
+const FLARE_POOL_SIZE = 36;
+const CORE_RADIUS = 110;     // a bit tighter so it doesn't shove too broadly
+const CENTER_CONTAIN = 0.010;
+
+let audioEnergy = 0;
+
+class Particle {
+  constructor(){
+    this.x = Math.random()*canvas.width;
+    this.y = Math.random()*canvas.height;
+    this.vx = (Math.random()-0.5)*0.22;
+    this.vy = (Math.random()-0.5)*0.22;
+    this.baseSize = 0.6 + Math.random()*0.9;
+    this.size = this.baseSize;
+    this.hue = Math.random()*360;
+    this.color = `hsl(${this.hue},100%,70%)`;
+  }
+  update(bassN, midN, trebN, centroidN, beatBoost, musicScale, isAudioActive){
+    this.x += this.vx; this.y += this.vy;
+
+    // idle diffusion
+    if (!isAudioActive) {
+      this.vx += (Math.random()-0.5)*0.02;
+      this.vy += (Math.random()-0.5)*0.02;
+    } else {
+      this.vx += (Math.random()-0.5)*0.006;
+      this.vy += (Math.random()-0.5)*0.006;
+    }
+
+    if(this.x<0) this.x = canvas.width; if(this.x>canvas.width) this.x = 0;
+    if(this.y<0) this.y = canvas.height; if(this.y>canvas.height) this.y = 0;
+
+    const cx = canvas.width/2, cy = canvas.height/2;
+    const dxc = cx - this.x, dyc = cy - this.y;
+    const containStrength = CENTER_CONTAIN * audioEnergy;
+    if (containStrength > 0.0001) {
+      this.vx += dxc * containStrength * 0.0015;
+      this.vy += dyc * containStrength * 0.0015;
+    }
+
+    // pointer attraction (movement-based)
+    const dxp = pointer.x - this.x, dyp = pointer.y - this.y;
+    const distp = Math.hypot(dxp,dyp) || 1;
+    const range = isTouch ? 280 : 220;
+    const now = performance.now();
+    const recent = Math.exp(-(now - pointer.lastMove) / 400);
+    const pointerFactor = pointer.active ? 1.0 : recent;
+    if (distp < range && pointerFactor > 0.02) {
+      const f = (1 - distp/range) * 0.12 * pointer.strength * pointerFactor;
+      this.vx += (dxp/distp)*f; this.vy += (dyp/distp)*f;
+    }
+
+    // music forces
+    const rx = this.x - cx, ry = this.y - cy;
+    const rdist = Math.hypot(rx, ry) || 1;
+
+    // core repulsion only on bass/beat
+    const corePower = (bassN*0.6 + beatBoost*0.25);
+    if (corePower > 0 && rdist < CORE_RADIUS) {
+      const repel = (1 - rdist/CORE_RADIUS) * 0.35 * corePower;
+      this.vx += (rx/rdist) * repel;
+      this.vy += (ry/rdist) * repel;
+    }
+
+    // Bass outward (tamed)
+    const bassPush = bassN * 0.22 * musicScale;
+    this.vx += (rx/rdist) * bassPush;
+    this.vy += (ry/rdist) * bassPush;
+
+    // Mid swirl
+    const tx = -ry/rdist, ty = rx/rdist;
+    this.vx += tx * midN * 0.55 * musicScale;
+    this.vy += ty * midN * 0.55 * musicScale;
+
+    // Treble jitter
+    this.vx += (Math.random() - 0.5) * trebN * 0.35 * musicScale;
+    this.vy += (Math.random() - 0.5) * trebN * 0.35 * musicScale;
+
+    // Beat outward kick (softer)
+    if (beatBoost > 0.05) {
+      this.vx += (rx/rdist) * beatBoost * 0.35 * musicScale;
+      this.vy += (ry/rdist) * beatBoost * 0.35 * musicScale;
+    }
+
+    this.vx *= 0.985; this.vy *= 0.985;
+
+    const targetSize = this.baseSize + bassN*0.7 + beatBoost*0.6 + trebN*0.2;
+    this.size = lerp(this.size, targetSize, 0.15);
+    const targetHue = (centroidN*320 + bassN*30) % 360;
+    this.hue  = lerp(this.hue, targetHue, 0.12);
+    this.color = `hsl(${this.hue},100%,${60 + trebN*22}%)`;
+  }
+  draw(){
+    ctx.shadowBlur = 6; ctx.shadowColor = this.color;
+    ctx.fillStyle = this.color;
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+class Flare {
+  constructor(){ this.alive=false; this.x=0; this.y=0; this.r=0; this.maxR=0; this.alpha=0; this.hue=0; }
+  spawn(cx, cy, hue, power){
+    this.alive = true; this.x=cx; this.y=cy; this.r=8;
+    this.maxR = 120 + power*180;
+    this.alpha = 0.22 + power*0.26;
+    this.hue = hue;
+  }
+  update(){ if(!this.alive) return; this.r += 4.5; this.alpha *= 0.92; if(this.r>this.maxR||this.alpha<0.01) this.alive=false; }
+  draw(){
+    if(!this.alive) return;
+    const g = ctx.createRadialGradient(this.x, this.y, this.r*0.2, this.x, this.y, this.r);
+    g.addColorStop(0, `hsla(${this.hue},100%,70%,${this.alpha})`);
+    g.addColorStop(1, `hsla(${this.hue},100%,50%,0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+const particles = Array.from({length: BASE_PARTICLE_COUNT}, () => new Particle());
+const flares = Array.from({length: FLARE_POOL_SIZE}, () => new Flare());
+
+/* ===================== Web Audio: per-panel tracks ===================== */
+let audioCtx, analyser, dataArray, source, gain, isPlaying=false;
+let bassN=0, midN=0, trebN=0, centroidN=0;
+let rollPeak = 0.3, rollFloor = 0.05;
+let energyLT = 0.10, energyST = 0.10;
+const PEAK_DECAY = 0.995, FLOOR_RISE = 0.999;
+
+const btnPlay = document.getElementById("toggleAudio");
+btnPlay.addEventListener("click", () => { if (!audioCtx || !isPlaying) play(); else pause(); });
+
+function createAudioChain(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.smoothingTimeConstant = 0.65;
+  analyser.minDecibels = -95;
+  analyser.maxDecibels = -5;
+  dataArray = new Uint8Array(analyser.frequencyBinCount);
+  gain = audioCtx.createGain();
+  gain.gain.value = 0; // fade in
+  gain.connect(audioCtx.destination);
+  analyser.connect(gain);
+}
+
+async function loadBuffer(file){
+  const resp = await fetch(encodeURI(file));
+  const buf = await resp.arrayBuffer();
+  return await audioCtx.decodeAudioData(buf);
+}
+
+let currentBuffer = null;
+let onEndedHandler = null;
+
+async function playTrack(index){
+  activeIndex = index;
+  // stop any existing
+  if (source){
+    try { source.onended = null; source.stop(); } catch(e){}
+    try { source.disconnect(); } catch(e){}
+  }
+  if (!audioCtx) createAudioChain();
+
+  // fade out quickly
+  gain.gain.cancelScheduledValues(audioCtx.currentTime);
+  gain.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.08);
+
+  // load buffer for this track (cache simple)
+  const file = tracks[index].audio;
+  currentBuffer = await loadBuffer(file);
+
+  // new source
+  source = audioCtx.createBufferSource();
+  source.buffer = currentBuffer;
+  source.connect(analyser);
+
+  // on end: auto-advance
+  source.onended = () => {
+    if (!isPlaying) return;
+    const next = (activeIndex+1) % N;
+    centerPanel(next, {animate:true, autoplay:true});
+  };
+
+  source.start(0);
+  isPlaying = true;
+  btnPlay.textContent = "Pause";
+
+  // fade in
+  gain.gain.setTargetAtTime(1.0, audioCtx.currentTime+0.02, 0.15);
+
+  // glow title of active panel
+  glowActiveMeta();
+}
+
+async function play(){
+  if (!audioCtx) createAudioChain();
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  if (!source) { await playTrack(activeIndex); } // start current
+  isPlaying = true;
+  btnPlay.textContent = "Pause";
+}
+async function pause(){
+  if (!audioCtx) return;
+  await audioCtx.suspend();
+  isPlaying = false;
+  btnPlay.textContent = "Play";
+}
+
+/* Keyboard shortcuts */
+addEventListener('keydown', (e)=>{
+  if (e.key === 'ArrowRight') centerPanel((activeIndex+1)%N);
+  if (e.key === 'ArrowLeft')  centerPanel((activeIndex-1+N)%N);
+  if (e.key.toLowerCase() === ' ') { e.preventDefault(); btnPlay.click(); }
+});
+
+/* ===================== Analysis helpers ===================== */
+function clampI(x,a,b){ return Math.min(b, Math.max(a, x|0)); }
+function hzToIndex(hz){
+  const nyq = (audioCtx ? audioCtx.sampleRate : 48000) / 2;
+  return clampI(Math.round(hz / nyq * (dataArray.length-1)), 0, dataArray.length-1);
+}
+function bandAvgHz(minHz, maxHz){
+  const a = hzToIndex(minHz), b = hzToIndex(maxHz);
+  let s=0, n=0; for(let i=a;i<=b;i++){ s+=dataArray[i]; n++; }
+  return n? s/n : 0;
+}
+function spectralCentroid(){
+  let num=0, den=0;
+  const nyq = (audioCtx ? audioCtx.sampleRate : 48000)/2;
+  for(let i=0;i<dataArray.length;i++){
+    const f = i/dataArray.length * nyq;
+    const m = dataArray[i];
+    num += f*m; den += m;
+  }
+  return den ? num/den : 0;
+}
+
+/* ===================== Visual loop ===================== */
+let camShakeX = 0, camShakeY = 0, camZoom = 0;
+
+function glowActiveMeta(){
+  const panels = [...document.querySelectorAll('.panel')];
+  panels.forEach(p => p.querySelector('.meta h3').style.textShadow = "");
+  // compute active face by rotation
+  const idx = activeIndex;
+  const hue = (centroidN*320 + bassN*30) % 360;
+  const glowSize = Math.max(10, trebN*26);
+  const glow = `0 0 ${glowSize}px hsl(${hue}, 100%, 60%)`;
+  panels[idx].querySelector('.meta h3').style.textShadow = glow;
+}
+
+function animate(){
+  // audio analysis
+  let beatBoost = 0;
+  if(isPlaying && analyser){
+    analyser.getByteFrequencyData(dataArray);
+    const bRaw = bandAvgHz(25, 160);
+    const mRaw = bandAvgHz(160, 2200);
+    const tRaw = bandAvgHz(2200, 9000);
+    const b01 = bRaw/255, m01 = mRaw/255, t01 = tRaw/255;
+
+    rollPeak = Math.max(rollPeak*PEAK_DECAY, b01, m01, t01);
+    rollFloor = Math.min(rollFloor/FLOOR_RISE, b01, m01, t01);
+    const span = Math.max(0.06, rollPeak - rollFloor);
+
+    const nb = clamp((b01 - rollFloor)/span, 0, 1);
+    const nm = clamp((m01 - rollFloor)/span, 0, 1);
+    const nt = clamp((t01 - rollFloor)/span, 0, 1);
+    bassN = lerp(bassN, nb, 0.28);
+    midN  = lerp(midN,  nm, 0.28);
+    trebN = lerp(trebN, nt, 0.28);
+
+    const scHz = spectralCentroid();
+    const nyq  = audioCtx.sampleRate/2;
+    centroidN = clamp(scHz / nyq, 0, 1);
+
+    const instantEnergy = (b01*1.7 + m01*1.1 + t01*0.6) / 3.4;
+    energyST = lerp(energyST, instantEnergy, 0.30);
+    energyLT = lerp(energyLT, instantEnergy, 0.02);
+    const diff = energyST - energyLT;
+    beatBoost = diff > 0 ? diff*1.4 : 0;
+
+    audioEnergy = clamp((bassN + midN + trebN) / 3, 0, 1);
+
+    camShakeX = lerp(camShakeX, (Math.random()-0.5) * beatBoost * 10, 0.4);
+    camShakeY = lerp(camShakeY, (Math.random()-0.5) * beatBoost * 10, 0.4);
+    camZoom   = lerp(camZoom, beatBoost * 0.015, 0.4);
+  } else {
+    bassN = lerp(bassN, 0, 0.15);
+    midN  = lerp(midN,  0, 0.15);
+    trebN = lerp(trebN, 0, 0.15);
+    centroidN = lerp(centroidN, 0.3, 0.05);
+    audioEnergy = lerp(audioEnergy, 0, 0.2);
+    camShakeX *= 0.9; camShakeY *= 0.9; camZoom *= 0.9;
+  }
+
+  // pointer vs music scale
+  const now = performance.now();
+  const recent = Math.exp(-(now - pointer.lastMove) / 400);
+  const pointerInfluence = pointer.active ? 0.7 : (recent * 0.45);
+  const musicScale = 1 - clamp(pointerInfluence, 0, 0.85);
+
+  // canvas transform
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const zoom = 1 + camZoom;
+  ctx.translate(camShakeX + canvas.width/2, camShakeY + canvas.height/2);
+  ctx.scale(zoom, zoom);
+  ctx.translate(-canvas.width/2, -canvas.height/2);
+
+  // particles
+  const isAudioActive = isPlaying && audioEnergy > 0.02;
+  for(const p of particles){ p.update(bassN, midN, trebN, centroidN, beatBoost, musicScale, isAudioActive); p.draw(); }
+
+  // (Optional) very light additive flares on beat — kept minimal for clarity
+  ctx.globalCompositeOperation = 'lighter';
+  // (We could add flares here if you want them back layer—omitted for visual cleanliness)
+  ctx.globalCompositeOperation = 'source-over';
+
+  // steady spin easing
+  rotationY += rotationSpeed;
+  if(!dragging){ rotationSpeed = lerp(rotationSpeed, -0.25, 0.06); }
+  applyRotation();
+
+  // active panel glow
+  glowActiveMeta();
+
+  // ring shimmer
+  ring.style.opacity = String(0.25 + trebN * 0.24);
+
+  requestAnimationFrame(animate);
+}
+animate();
+
+/* Start with the first panel centered */
+centerPanel(0, {animate:false, autoplay:false});
+</script>
+</body>
+</html>
