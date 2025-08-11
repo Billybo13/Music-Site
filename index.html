@@ -40,15 +40,17 @@ canvas { position:fixed; inset:0; z-index:0; }
 .panel {
   position:absolute; width:var(--panelW, 82vw); height:var(--panelH, 42vh);
   display:flex; align-items:flex-end; justify-content:flex-start;
-  border-radius:1.2vw; overflow:hidden; box-sizing:border-box;
-  background:#111; /* backup behind image */
+  border-radius:16px; overflow:hidden; box-sizing:border-box;
+  background:#000; /* fill for letterbox when using contain */
   border: 1px solid rgba(255,255,255,0.12);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 12px 40px rgba(0,0,0,0.35);
 }
 .panel::before {
   /* image */
   content:""; position:absolute; inset:0;
-  background-position:center; background-size: contain; background-color: #000; background-repeat:no-repeat;
+  background-position:center;
+  background-size:contain;           /* show whole image, no cropping */
+  background-repeat:no-repeat;
   filter: saturate(110%) contrast(105%);
   /* Sharper rendering when rotating in 3D */
   transform: translateZ(1px);
@@ -143,6 +145,11 @@ const tracks = [
   }
 ];
 
+/* ===================== Sizing config ===================== */
+/* Tweak these to taste if you want smaller/larger on desktop */
+const MAX_DESKTOP_W = 900;  // px (cap for large screens)
+const MAX_DESKTOP_H = 500;  // px
+
 /* ===================== Helpers: preload images & compute crisp panel size ===================== */
 const root = document.documentElement;
 const carousel = document.getElementById("carousel");
@@ -177,9 +184,9 @@ function updatePanelSizeForCrispness(imageInfos){
   const desiredW = Math.floor(0.82 * innerWidth);
   const desiredH = Math.floor(0.42 * innerHeight);
 
-  // pick the safe size: don't exceed native CSS pixels
-  panelW = Math.max(320, Math.min(desiredW, maxCssW || desiredW));
-  panelH = Math.max(180, Math.min(desiredH, maxCssH || desiredH));
+  // Cap at native CSS pixels AND desktop caps
+  panelW = Math.max(320, Math.min(desiredW, (maxCssW || desiredW), MAX_DESKTOP_W));
+  panelH = Math.max(180, Math.min(desiredH, (maxCssH || desiredH), MAX_DESKTOP_H));
 
   // push to CSS variables
   root.style.setProperty("--panelW", panelW + "px");
@@ -332,7 +339,6 @@ class Particle {
   update(bassN, midN, trebN, centroidN, beatBoost, musicScale, isAudioActive){
     this.x += this.vx; this.y += this.vy;
 
-    // idle diffusion
     if (!isAudioActive) {
       this.vx += (Math.random()-0.5)*0.02;
       this.vy += (Math.random()-0.5)*0.02;
@@ -352,7 +358,6 @@ class Particle {
       this.vy += dyc * containStrength * 0.0015;
     }
 
-    // pointer attraction (movement-based)
     const dxp = pointer.x - this.x, dyp = pointer.y - this.y;
     const distp = Math.hypot(dxp,dyp) || 1;
     const range = isTouch ? 280 : 220;
@@ -364,7 +369,6 @@ class Particle {
       this.vx += (dxp/distp)*f; this.vy += (dyp/distp)*f;
     }
 
-    // music forces
     const rx = this.x - cx, ry = this.y - cy;
     const rdist = Math.hypot(rx, ry) || 1;
 
@@ -463,27 +467,22 @@ let currentBuffer = null;
 
 async function playTrack(index){
   activeIndex = index;
-  // stop any existing
   if (source){
     try { source.onended = null; source.stop(); } catch(e){}
     try { source.disconnect(); } catch(e){}
   }
   if (!audioCtx) createAudioChain();
 
-  // fade out quickly
   gain.gain.cancelScheduledValues(audioCtx.currentTime);
   gain.gain.setTargetAtTime(0.0, audioCtx.currentTime, 0.08);
 
-  // load buffer for this track (cache simple)
   const file = tracks[index].audio;
   currentBuffer = await loadBuffer(file);
 
-  // new source
   source = audioCtx.createBufferSource();
   source.buffer = currentBuffer;
   source.connect(analyser);
 
-  // on end: auto-advance
   source.onended = () => {
     if (!isPlaying) return;
     const next = (activeIndex+1) % tracks.length;
@@ -494,17 +493,15 @@ async function playTrack(index){
   isPlaying = true;
   btnPlay.textContent = "Pause";
 
-  // fade in
   gain.gain.setTargetAtTime(1.0, audioCtx.currentTime+0.02, 0.15);
 
-  // glow title of active panel
   glowActiveMeta();
 }
 
 async function play(){
   if (!audioCtx) createAudioChain();
   if (audioCtx.state === "suspended") await audioCtx.resume();
-  if (!source) { await playTrack(activeIndex); } // start current
+  if (!source) { await playTrack(activeIndex); }
   isPlaying = true;
   btnPlay.textContent = "Pause";
 }
@@ -558,7 +555,6 @@ function glowActiveMeta(){
 }
 
 function animate(){
-  // audio analysis
   let beatBoost = 0;
   if(isPlaying && analyser){
     analyser.getByteFrequencyData(dataArray);
@@ -602,13 +598,11 @@ function animate(){
     camShakeX *= 0.9; camShakeY *= 0.9; camZoom *= 0.9;
   }
 
-  // pointer vs music scale
   const now = performance.now();
   const recent = Math.exp(-(now - pointer.lastMove) / 400);
   const pointerInfluence = pointer.active ? 0.7 : (recent * 0.45);
   const musicScale = 1 - clamp(pointerInfluence, 0, 0.85);
 
-  // canvas transform
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const zoom = 1 + camZoom;
@@ -616,19 +610,15 @@ function animate(){
   ctx.scale(zoom, zoom);
   ctx.translate(-canvas.width/2, -canvas.height/2);
 
-  // particles
   const isAudioActive = isPlaying && audioEnergy > 0.02;
   for(const p of particles){ p.update(bassN, midN, trebN, centroidN, beatBoost, musicScale, isAudioActive); p.draw(); }
 
-  // ring shimmer
   ring.style.opacity = String(0.25 + trebN * 0.24);
 
-  // steady spin easing
   rotationY += rotationSpeed;
   if(!dragging){ rotationSpeed = lerp(rotationSpeed, -0.25, 0.06); }
   applyRotation();
 
-  // active panel glow
   glowActiveMeta();
 
   requestAnimationFrame(animate);
@@ -638,26 +628,24 @@ animate();
 /* ===================== Geometry update (on build + resize) ===================== */
 function updateGeometry(){
   const N = tracks.length;
-  // recompute panel target size under current viewport and dpr constraints
-  // We use the same preload results cached in imageInfosCache if available.
   if (window.imageInfosCache) {
     updatePanelSizeForCrispness(window.imageInfosCache);
   } else {
-    // fallback to viewport-based if cache not ready yet
     panelW = Math.round(0.82 * innerWidth);
     panelH = Math.round(0.42 * innerHeight);
+    // Apply desktop caps even before images load
+    panelW = Math.min(panelW, MAX_DESKTOP_W);
+    panelH = Math.min(panelH, MAX_DESKTOP_H);
     root.style.setProperty("--panelW", panelW + "px");
     root.style.setProperty("--panelH", panelH + "px");
   }
 
-  // recompute radius and update transforms
   radius = computeRadius(N);
   const panels = [...document.querySelectorAll('.panel')];
   panels.forEach((panel, i) => {
     panel.style.transform = `rotateY(${(360/N)*i}deg) translateZ(${radius}px)`;
   });
 
-  // update ring
   ring.innerHTML = "";
   const segmentCount = 60;
   const stripW = Math.max(8, Math.floor((2 * Math.PI * radius) / segmentCount));
@@ -674,12 +662,10 @@ function updateGeometry(){
 
 /* ===================== Boot: preload images, size panels crisply, build ===================== */
 (async function init(){
-  // preload images to get natural sizes
   const imageInfos = await preloadImages(tracks.map(t => t.image));
   window.imageInfosCache = imageInfos;
   updatePanelSizeForCrispness(imageInfos);
   buildPanels();
-  // Start with the first panel centered (no autoplay)
   centerPanel(0, {animate:false, autoplay:false});
 })();
 </script>
