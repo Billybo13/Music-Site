@@ -106,33 +106,33 @@ button.secondary { background:#2f2f2f; }
 const tracks = [
   {
     title: "Chiraq Pope",
-    image: "images/emergent.jpg",
+    image: "IMG_7893.jpeg",
     audio: "Chiraq Pope (EP Final).wav",
-    desc:  "Brutal blasphemy"
+    desc:  "Blasphemous aggression. Our kick before the knock."
   },
   {
     title: "Prophet For Profit",
-    image: "images/harbor.jpg",
+    image: "IMG_8267.jpeg",
     audio: "Prophet For Profit (EP Final).wav",
     desc:  "A tune about the bastardization of religion by leaders only after profit."
   },
   {
     title: "Above The Line",
-    image: "images/dubdeath.jpg",
+    image: "IMG_8358.jpeg",
     audio: "Above The Line (EP Final).wav",      
-    desc:  "Fake southerners"
+    desc:  "We grew up in "Southern so and so.." and everyone's real proud."
   },
   {
     title: "Prayers Mean Nothing",
-    image: "images/glass.jpg",
+    image: "IMG_8357.jpeg",
     audio: "Prayers Mean Nothing (EP Final).wav",
     desc:  "When god is gone, who will answer prayers?"
   },
   {
     title: "Gutter",
-    image: "images/bloom.jpg",
+    image: "IMG_9561.jpeg",
     audio: "Gutter (EP Final).wav",
-    desc:  "A violent end"
+    desc:  "A violent end to this oppressive system of life."
   }
 ];
 
@@ -632,9 +632,9 @@ function animate(){
   const isAudioActive = isPlaying && audioEnergy > 0.02;
   for(const p of particles){ p.update(bassN, midN, trebN, centroidN, beatBoost, musicScale, isAudioActive); p.draw(); }
 
-  // (Optional) very light additive flares on beat — kept minimal for clarity
+  // (Optional) very light additive flares on beat -- kept minimal for clarity
   ctx.globalCompositeOperation = 'lighter';
-  // (We could add flares here if you want them back layer—omitted for visual cleanliness)
+  // (We could add flares here if you want them back layer--omitted for visual cleanliness)
   ctx.globalCompositeOperation = 'source-over';
 
   // steady spin easing
