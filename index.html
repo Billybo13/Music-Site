@@ -322,10 +322,10 @@ const pointer = { x: innerWidth/2, y: innerHeight/2, active:false, strength: isT
 function markMove(x, y){ pointer.x=x; pointer.y=y; pointer.lastMove=performance.now(); }
 
 /* Particle + Flare classes */
-const BASE_PARTICLE_COUNT = 720;
-const FLARE_POOL_SIZE = 36;
-const CORE_RADIUS = 70;
-const CENTER_CONTAIN = 0.010;
+const BASE_PARTICLE_COUNT = 1000;
+const FLARE_POOL_SIZE = 30;
+const CORE_RADIUS = 50;
+const CENTER_CONTAIN = 0.008;
 
 let audioEnergy = 0;
 
@@ -376,7 +376,7 @@ class Particle {
     const rx = this.x - cx, ry = this.y - cy;
     const rdist = Math.hypot(rx, ry) || 1;
 
-    const corePower = (bassN*0.6 + beatBoost*0.25);
+    const corePower = (bassN*0.5 + beatBoost*0.25);
     if (corePower > 0 && rdist < CORE_RADIUS) {
       const repel = (1 - rdist/CORE_RADIUS) * 0.35 * corePower;
       this.vx += (rx/rdist) * repel;
