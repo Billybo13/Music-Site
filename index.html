@@ -11,7 +11,7 @@ canvas { position:fixed; inset:0; z-index:0; }
 /* Cylinder wrapper */
 .carousel-container {
   position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-  perspective:1800px; width:82vw; height:42vh; z-index:1;
+  perspective:1800px; width:var(--panelW, 82vw); height:var(--panelH, 42vh); z-index:1;
 }
 
 /* 3D ring behind */
@@ -19,9 +19,9 @@ canvas { position:fixed; inset:0; z-index:0; }
 .ring-panel {
   position:absolute; left:50%; top:50%; transform-origin:center center;
   width: var(--stripW, 20px);
-  height: 42vh;
+  height: var(--panelH, 42vh);
   margin-left: calc(var(--stripW, 20px) / -2);
-  margin-top: calc(42vh / -2);
+  margin-top: calc(var(--panelH, 42vh) / -2);
   border-radius: 6px;
   background:
     linear-gradient(90deg,
@@ -38,7 +38,8 @@ canvas { position:fixed; inset:0; z-index:0; }
 /* Picture cylinder */
 .carousel { position:absolute; inset:0; transform-style:preserve-3d; z-index:1; }
 .panel {
-  position:absolute; width:82vw; height:42vh; display:flex; align-items:flex-end; justify-content:flex-start;
+  position:absolute; width:var(--panelW, 82vw); height:var(--panelH, 42vh);
+  display:flex; align-items:flex-end; justify-content:flex-start;
   border-radius:1.2vw; overflow:hidden; box-sizing:border-box;
   background:#111; /* backup behind image */
   border: 1px solid rgba(255,255,255,0.12);
@@ -49,13 +50,18 @@ canvas { position:fixed; inset:0; z-index:0; }
   content:""; position:absolute; inset:0;
   background-position:center; background-size:cover; background-repeat:no-repeat;
   filter: saturate(110%) contrast(105%);
+  /* Sharper rendering when rotating in 3D */
+  transform: translateZ(1px);
+  backface-visibility: hidden;
+  will-change: transform;
+  image-rendering:auto; /* let browser pick best resampling */
 }
 .panel::after {
-  /* airy glass wash */
+  /* airy wash WITHOUT blur so images stay sharp */
   content:""; position:absolute; inset:0;
   background: rgba(255,255,255,0.05);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   pointer-events:none;
 }
 
@@ -67,6 +73,9 @@ canvas { position:fixed; inset:0; z-index:0; }
   border-radius: 10px;
   max-width:min(60ch, 70%);
   box-shadow: 0 6px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18);
+  /* keep the nice glass blur only on text card */
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
 }
 .meta h3 { margin:0 0 .35rem; font-size:clamp(1rem,2.4vw,1.6rem); line-height:1.2; }
 .meta p  { margin:0; font-size:clamp(.9rem,1.6vw,1rem); line-height:1.35; opacity:.95; }
@@ -82,8 +91,6 @@ button{
   box-shadow: 0 6px 18px rgba(0,0,0,0.35);
 }
 button.secondary { background:#2f2f2f; }
-
-/* Helper: active panel glow (applied inline via JS as text-shadow on .meta h3) */
 </style>
 </head>
 <body>
@@ -136,106 +143,94 @@ const tracks = [
   }
 ];
 
-/* ===================== Build cylinder ===================== */
+/* ===================== Helpers: preload images & compute crisp panel size ===================== */
+const root = document.documentElement;
 const carousel = document.getElementById("carousel");
 const ring = document.getElementById("cylinderRing");
-const N = tracks.length;
-const panelWidth = 0.82 * innerWidth;
-const radius = Math.round((panelWidth / 2) / Math.tan(Math.PI / N));
 
-for (let i=0;i<N;i++){
-  const t = tracks[i];
-  const panel = document.createElement("div");
-  panel.className = "panel";
-  panel.dataset.index = i;
-  panel.style.setProperty("--angle", (360/N)*i + "deg");
-  panel.style.transform = `rotateY(${(360/N)*i}deg) translateZ(${radius}px)`;
-  panel.style.setProperty("--img", `url('${t.image}')`);
-  panel.style.setProperty("--title", `'${t.title.replace(/'/g,"\\'")}'`);
-  panel.style.setProperty("--desc", `'${t.desc.replace(/'/g,"\\'")}'`);
-  panel.style.setProperty("--audio", `'${t.audio.replace(/'/g,"\\'")}'`);
-  panel.style.setProperty("--radius", radius + "px");
-  panel.style.setProperty("--panelWidth", panelWidth + "px");
-  panel.style.setProperty("--idx", i);
-  panel.style.setProperty("--bg", `url("${t.image}")`);
-  panel.style.setProperty("--z", 1);
-  panel.style.setProperty("--x", 0);
-  panel.style.setProperty("--y", 0);
-  panel.style.setProperty("--scale", 1);
-  panel.style.setProperty("--rot", (360/N)*i + "deg");
-  panel.style.setProperty("--translateZ", radius + "px");
-  panel.style.setProperty("--translateX", 0 + "px");
-  panel.style.setProperty("--translateY", 0 + "px");
-  panel.style.setProperty("--opacity", 1);
+let panelW = Math.round(0.82 * innerWidth);
+let panelH = Math.round(0.42 * innerHeight);
+let radius = 600; // will be computed
 
-  panel.style.setProperty("--bg-url", `url("${t.image}")`);
-  panel.style.setProperty("--title-text", t.title);
-  panel.style.setProperty("--desc-text", t.desc);
-  panel.style.setProperty("--audio-file", t.audio);
-  panel.style.setProperty("--angle-deg", (360/N)*i);
-
-  // apply image
-  panel.style.setProperty("--imgUrl", `url("${t.image}")`);
-  panel.style.setProperty("--imgOpacity", 1);
-  panel.style.setProperty("--imgScale", 1);
-  panel.style.setProperty("--imgRotate", 0 + "deg");
-  panel.style.setProperty("--imgX", 0 + "px");
-  panel.style.setProperty("--imgY", 0 + "px");
-  panel.style.setProperty("--imgBlur", 0 + "px");
-  panel.style.setProperty("--imgSat", 1);
-
-  panel.style.setProperty("--panelOpacity", 1);
-  panel.style.setProperty("--panelShadow", "0 12px 40px rgba(0,0,0,0.35)");
-
-  panel.style.setProperty("--metaBg", "rgba(0,0,0,0.35)");
-
-  // set the visual image on ::before
-  panel.style.setProperty('--bg-image', `url("${t.image}")`);
-  panel.style.setProperty('--bg-size', 'cover');
-
-  panel.style.setProperty('--angle', (360/N)*i + 'deg');
-  panel.style.setProperty('--zdepth', radius + 'px');
-
-  panel.style.setProperty('--bgPos', 'center');
-
-  panel.style.setProperty('--debug', 0);
-
-  // Attach image to pseudo
-  panel.style.setProperty('--img', `url("${t.image}")`);
-  panel.style.setProperty('--imgFit', 'cover');
-  panel.style.setProperty('--imgPos', 'center');
-
-  // Write title + description
-  const meta = document.createElement('div');
-  meta.className = 'meta';
-  meta.innerHTML = `<h3>${t.title}</h3><p>${t.desc}</p><span class="tag">${i+1} / ${N}</span>`;
-  panel.appendChild(meta);
-
-  // Inject image url into ::before
-  panel.style.setProperty('--imgURL', `url("${t.image}")`);
-  panel.style.setProperty('--overlay', '1');
-
-  // We can’t directly change ::before from JS with CSS vars reliably in all browsers,
-  // so set style attribute for ::before via a class hook:
-  const styleEl = document.createElement('style');
-  styleEl.textContent = `
-    .panel[data-index="${i}"]::before { background-image: url("${t.image}"); }
-  `;
-  document.head.appendChild(styleEl);
-
-  carousel.appendChild(panel);
+async function preloadImages(list){
+  const loaders = list.map(src => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ src, w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve({ src, w: 0, h: 0 });
+    img.src = src;
+  }));
+  return Promise.all(loaders);
 }
 
-const segmentCount = 60;
-const stripW = Math.max(8, Math.floor((2 * Math.PI * radius) / segmentCount));
-ring.style.setProperty('--stripW', stripW + 'px');
-for (let i = 0; i < segmentCount; i++) {
-  const seg = document.createElement('div');
-  seg.className = 'ring-panel';
-  const angle = i * (360 / segmentCount);
-  const tilt = Math.sin((i / segmentCount) * Math.PI * 2) * 0.6;
-  seg.style.transform = `rotateY(${angle}deg) rotateX(${tilt}deg) translateZ(${radius}px)`;
-  ring.appendChild(seg);
+function updatePanelSizeForCrispness(imageInfos){
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+
+  // find the smallest native size among all images
+  const minW = Math.max(1, Math.min(...imageInfos.map(i => i.w || 0)));
+  const minH = Math.max(1, Math.min(...imageInfos.map(i => i.h || 0)));
+
+  // maximum CSS size we can display without upscaling the smallest image
+  const maxCssW = Math.floor(minW / dpr);
+  const maxCssH = Math.floor(minH / dpr);
+
+  // desired viewport-relative size
+  const desiredW = Math.floor(0.82 * innerWidth);
+  const desiredH = Math.floor(0.42 * innerHeight);
+
+  // pick the safe size: don't exceed native CSS pixels
+  panelW = Math.max(320, Math.min(desiredW, maxCssW || desiredW));
+  panelH = Math.max(180, Math.min(desiredH, maxCssH || desiredH));
+
+  // push to CSS variables
+  root.style.setProperty("--panelW", panelW + "px");
+  root.style.setProperty("--panelH", panelH + "px");
+}
+
+function computeRadius(N){
+  // based on current panelW
+  return Math.round((panelW / 2) / Math.tan(Math.PI / N));
+}
+
+/* ===================== Build cylinder ===================== */
+function buildPanels(){
+  carousel.innerHTML = "";
+  const N = tracks.length;
+  radius = computeRadius(N);
+
+  for (let i=0;i<N;i++){
+    const t = tracks[i];
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    panel.dataset.index = i;
+    panel.style.transform = `rotateY(${(360/N)*i}deg) translateZ(${radius}px)`;
+
+    // Write title + description
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.innerHTML = `<h3>${t.title}</h3><p>${t.desc}</p><span class="tag">${i+1} / ${N}</span>`;
+    panel.appendChild(meta);
+
+    // Set image on ::before via a per-index style block (works across browsers)
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `.panel[data-index="${i}"]::before{ background-image:url("${t.image}"); }`;
+    document.head.appendChild(styleEl);
+
+    carousel.appendChild(panel);
+  }
+
+  // build ring
+  ring.innerHTML = "";
+  const segmentCount = 60;
+  const stripW = Math.max(8, Math.floor((2 * Math.PI * radius) / segmentCount));
+  ring.style.setProperty('--stripW', stripW + 'px');
+  for (let i = 0; i < segmentCount; i++) {
+    const seg = document.createElement('div');
+    seg.className = 'ring-panel';
+    const angle = i * (360 / segmentCount);
+    const tilt = Math.sin((i / segmentCount) * Math.PI * 2) * 0.6;
+    seg.style.transform = `rotateY(${angle}deg) rotateX(${tilt}deg) translateZ(${radius}px)`;
+    ring.appendChild(seg);
+  }
 }
 
 /* ===================== Interaction: spin + select panels ===================== */
@@ -247,9 +242,8 @@ let activeIndex = 0;
 function applyRotation(){ carousel.style.transform = `rotateY(${rotationY}deg)`; }
 
 function centerPanel(i, {animate=true, autoplay=true} = {}){
-  // Compute the shortest rotation to bring panel i to the front (angle 0)
+  const N = tracks.length;
   const anglePer = 360 / N;
-  // Current "sector"
   const currentSector = ((rotationY % 360)+360)%360 / anglePer;
   const diffSectors = i - Math.round(currentSector);
   const targetRotation = rotationY + (-diffSectors * anglePer);
@@ -298,14 +292,15 @@ addEventListener("touchmove", e => {
 addEventListener("touchend",  () => { dragging=false; pointer.active=false; });
 
 /* Prev/Next */
-document.getElementById('prevBtn').onclick = ()=> centerPanel((activeIndex-1+N)%N);
-document.getElementById('nextBtn').onclick = ()=> centerPanel((activeIndex+1)%N);
+document.getElementById('prevBtn').onclick = ()=> centerPanel((activeIndex-1+tracks.length)%tracks.length);
+document.getElementById('nextBtn').onclick = ()=> centerPanel((activeIndex+1)%tracks.length);
 
 /* ===================== Particles / Visualizer (balanced + reactive) ===================== */
 const canvas = document.getElementById("bg");
 const ctx = canvas.getContext("2d", { alpha:true });
-function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
-addEventListener("resize", resize); resize();
+function resizeCanvas(){ canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener("resize", () => { resizeCanvas(); updateGeometry(); });
+resizeCanvas();
 
 const lerp = (a,b,t)=> a + (b-a)*t;
 const clamp = (x,a,b)=> Math.min(b, Math.max(a, x));
@@ -315,10 +310,10 @@ const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 const pointer = { x: innerWidth/2, y: innerHeight/2, active:false, strength: isTouch?2.0:1.0, lastMove:0 };
 function markMove(x, y){ pointer.x=x; pointer.y=y; pointer.lastMove=performance.now(); }
 
-/* Particle + Flare classes (same balanced behavior from earlier) */
+/* Particle + Flare classes */
 const BASE_PARTICLE_COUNT = 720;
 const FLARE_POOL_SIZE = 36;
-const CORE_RADIUS = 110;     // a bit tighter so it doesn't shove too broadly
+const CORE_RADIUS = 110;
 const CENTER_CONTAIN = 0.010;
 
 let audioEnergy = 0;
@@ -373,7 +368,6 @@ class Particle {
     const rx = this.x - cx, ry = this.y - cy;
     const rdist = Math.hypot(rx, ry) || 1;
 
-    // core repulsion only on bass/beat
     const corePower = (bassN*0.6 + beatBoost*0.25);
     if (corePower > 0 && rdist < CORE_RADIUS) {
       const repel = (1 - rdist/CORE_RADIUS) * 0.35 * corePower;
@@ -381,21 +375,17 @@ class Particle {
       this.vy += (ry/rdist) * repel;
     }
 
-    // Bass outward (tamed)
     const bassPush = bassN * 0.22 * musicScale;
     this.vx += (rx/rdist) * bassPush;
     this.vy += (ry/rdist) * bassPush;
 
-    // Mid swirl
     const tx = -ry/rdist, ty = rx/rdist;
     this.vx += tx * midN * 0.55 * musicScale;
     this.vy += ty * midN * 0.55 * musicScale;
 
-    // Treble jitter
     this.vx += (Math.random() - 0.5) * trebN * 0.35 * musicScale;
     this.vy += (Math.random() - 0.5) * trebN * 0.35 * musicScale;
 
-    // Beat outward kick (softer)
     if (beatBoost > 0.05) {
       this.vx += (rx/rdist) * beatBoost * 0.35 * musicScale;
       this.vy += (ry/rdist) * beatBoost * 0.35 * musicScale;
@@ -470,7 +460,6 @@ async function loadBuffer(file){
 }
 
 let currentBuffer = null;
-let onEndedHandler = null;
 
 async function playTrack(index){
   activeIndex = index;
@@ -497,7 +486,7 @@ async function playTrack(index){
   // on end: auto-advance
   source.onended = () => {
     if (!isPlaying) return;
-    const next = (activeIndex+1) % N;
+    const next = (activeIndex+1) % tracks.length;
     centerPanel(next, {animate:true, autoplay:true});
   };
 
@@ -528,8 +517,8 @@ async function pause(){
 
 /* Keyboard shortcuts */
 addEventListener('keydown', (e)=>{
-  if (e.key === 'ArrowRight') centerPanel((activeIndex+1)%N);
-  if (e.key === 'ArrowLeft')  centerPanel((activeIndex-1+N)%N);
+  if (e.key === 'ArrowRight') centerPanel((activeIndex+1)%tracks.length);
+  if (e.key === 'ArrowLeft')  centerPanel((activeIndex-1+tracks.length)%tracks.length);
   if (e.key.toLowerCase() === ' ') { e.preventDefault(); btnPlay.click(); }
 });
 
@@ -561,12 +550,11 @@ let camShakeX = 0, camShakeY = 0, camZoom = 0;
 function glowActiveMeta(){
   const panels = [...document.querySelectorAll('.panel')];
   panels.forEach(p => p.querySelector('.meta h3').style.textShadow = "");
-  // compute active face by rotation
   const idx = activeIndex;
   const hue = (centroidN*320 + bassN*30) % 360;
   const glowSize = Math.max(10, trebN*26);
   const glow = `0 0 ${glowSize}px hsl(${hue}, 100%, 60%)`;
-  panels[idx].querySelector('.meta h3').style.textShadow = glow;
+  if (panels[idx]) panels[idx].querySelector('.meta h3').style.textShadow = glow;
 }
 
 function animate(){
@@ -632,10 +620,8 @@ function animate(){
   const isAudioActive = isPlaying && audioEnergy > 0.02;
   for(const p of particles){ p.update(bassN, midN, trebN, centroidN, beatBoost, musicScale, isAudioActive); p.draw(); }
 
-  // (Optional) very light additive flares on beat — kept minimal for clarity
-  ctx.globalCompositeOperation = 'lighter';
-  // (We could add flares here if you want them back layer—omitted for visual cleanliness)
-  ctx.globalCompositeOperation = 'source-over';
+  // ring shimmer
+  ring.style.opacity = String(0.25 + trebN * 0.24);
 
   // steady spin easing
   rotationY += rotationSpeed;
@@ -645,15 +631,57 @@ function animate(){
   // active panel glow
   glowActiveMeta();
 
-  // ring shimmer
-  ring.style.opacity = String(0.25 + trebN * 0.24);
-
   requestAnimationFrame(animate);
 }
 animate();
 
-/* Start with the first panel centered */
-centerPanel(0, {animate:false, autoplay:false});
+/* ===================== Geometry update (on build + resize) ===================== */
+function updateGeometry(){
+  const N = tracks.length;
+  // recompute panel target size under current viewport and dpr constraints
+  // We use the same preload results cached in imageInfosCache if available.
+  if (window.imageInfosCache) {
+    updatePanelSizeForCrispness(window.imageInfosCache);
+  } else {
+    // fallback to viewport-based if cache not ready yet
+    panelW = Math.round(0.82 * innerWidth);
+    panelH = Math.round(0.42 * innerHeight);
+    root.style.setProperty("--panelW", panelW + "px");
+    root.style.setProperty("--panelH", panelH + "px");
+  }
+
+  // recompute radius and update transforms
+  radius = computeRadius(N);
+  const panels = [...document.querySelectorAll('.panel')];
+  panels.forEach((panel, i) => {
+    panel.style.transform = `rotateY(${(360/N)*i}deg) translateZ(${radius}px)`;
+  });
+
+  // update ring
+  ring.innerHTML = "";
+  const segmentCount = 60;
+  const stripW = Math.max(8, Math.floor((2 * Math.PI * radius) / segmentCount));
+  ring.style.setProperty('--stripW', stripW + 'px');
+  for (let i = 0; i < segmentCount; i++) {
+    const seg = document.createElement('div');
+    seg.className = 'ring-panel';
+    const angle = i * (360 / segmentCount);
+    const tilt = Math.sin((i / segmentCount) * Math.PI * 2) * 0.6;
+    seg.style.transform = `rotateY(${angle}deg) rotateX(${tilt}deg) translateZ(${radius}px)`;
+    ring.appendChild(seg);
+  }
+}
+
+/* ===================== Boot: preload images, size panels crisply, build ===================== */
+(async function init(){
+  // preload images to get natural sizes
+  const imageInfos = await preloadImages(tracks.map(t => t.image));
+  window.imageInfosCache = imageInfos;
+  updatePanelSizeForCrispness(imageInfos);
+  buildPanels();
+  // Start with the first panel centered (no autoplay)
+  centerPanel(0, {animate:false, autoplay:false});
+})();
 </script>
 </body>
 </html>
